@@ -3,8 +3,10 @@ import fnmatch
 import pandas as pd
 import numpy as np
 import imblearn
+import statistics
 from imblearn.under_sampling import RandomUnderSampler
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 
 def findfile(pattern, path):
     result = []
@@ -18,7 +20,6 @@ def findfile(pattern, path):
 def load_file(file_path, window_size):
     sequenceX, sequenceY = [], []
     for files in file_path:
-        #df = pd.read_csv(files,nrows=100)
         df = pd.read_csv(files)
         #### Prep data sequence for each file ####:
         for i in range(0, len(df)-window_size):
@@ -34,6 +35,43 @@ def load_file(file_path, window_size):
     
     return sequenceX, sequenceY
 
+#### Load training file ####
+def load_file_anomaly(file_path, window_size, training, scaler=None):
+    dataset = []
+    for files in file_path:
+        print(files)
+        df = pd.read_csv(files)
+        df.drop(["type"], axis=1, inplace=True)
+        print(df.shape)
+        #### Prep data sequence for each file ####:
+
+        dataset.append(df)
+    dataset = pd.concat(dataset)
+    print("Data Shape: ", dataset.shape)
+
+    if training:
+        scaler = create_scaler(dataset)
+    dataset = scaler.transform(dataset)
+    print("Scaled Data Shape: ", dataset.shape)
+
+    sequenceX, sequenceY = create_sequences(dataset, dataset[0], window_size)
+    print("Finsish loading file shape: ",sequenceX.shape, sequenceY.shape)
+
+    return sequenceX, sequenceY, scaler
+
+def create_sequences(X, y, time_steps):
+    Xs, ys = [], []
+    for i in range(len(X)-time_steps):
+        Xs.append(X[i:(i+time_steps)])
+        ys.append(X[i+time_steps])
+    return np.array(Xs), np.array(ys)
+
+def create_scaler(sequenceX):
+    scaler = StandardScaler()
+    scaler = scaler.fit(sequenceX)
+    
+    return scaler
+
 #### Balance classes ####
 def class_rebalance(sequenceX, sequenceY, window_size):
     sequenceX = sequenceX.reshape(sequenceX.shape[0],-1)
@@ -48,15 +86,24 @@ def class_rebalance(sequenceX, sequenceY, window_size):
 
     return x_rus, y_rus
 
-def plot(history):
+def threshold_calculation(train_mae_loss):
+    threshold = [] 
+    for j in range(0,train_mae_loss.shape[1]):
+        scores = train_mae_loss[:,j]
+        cut_off = statistics.mean(scores) + (2*statistics.pstdev(scores))
+        threshold.append(cut_off)
+    print(f'Reconstruction error threshold: {threshold}')
+    return threshold
 
-    plt.plot(history.history['accuracy'])
-    plt.plot(history.history['val_accuracy'])
-    plt.title('model accuracy')
-    plt.ylabel('accuracy')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'test'], loc='upper left')
-    plt.show()
+def plot(history):
+    if 'accuracy' in history.history.keys():
+        plt.plot(history.history['accuracy'])
+        plt.plot(history.history['val_accuracy'])
+        plt.title('model accuracy')
+        plt.ylabel('accuracy')
+        plt.xlabel('epoch')
+        plt.legend(['train', 'test'], loc='upper left')
+        plt.show()
     # summarize history for loss
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
@@ -64,4 +111,20 @@ def plot(history):
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
+
+def plot_anomaly(test_mae_loss, num_evt, threshold):
+
+    #### Plot prediction graph for each event ####
+    plt.figure()
+    for group in range(0,num_evt):
+        plt.subplot(num_evt, 1, group+1)
+        plt.ylabel("Prediction error")
+        plt.ylim([0,5])
+        plt.plot(test_mae_loss[:,group], label="Prediction")
+        plt.axhline(y=threshold[group], color='r',label="Threshold")
+        plt.legend()
+
+    plt.xlabel("Time")
+    
     plt.show()
